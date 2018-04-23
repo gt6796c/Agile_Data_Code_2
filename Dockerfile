@@ -5,14 +5,14 @@ MAINTAINER Russell Jurney, russell.jurney@gmail.com
 
 USER root
 
-
 # Update apt-get and install things
 RUN apt-get autoclean
 RUN apt-get update && \
     apt-get install -y sudo zip unzip curl bzip2 python-dev build-essential git libssl1.0.0 libssl-dev
 
 RUN groupadd -g 999 ubuntu && \
-    useradd -G sudo -m -r -u 999 -g ubuntu ubuntu
+    useradd -m -r -u 999 -g ubuntu ubuntu && \
+    echo "ubuntu ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/ubuntu
 
 # Setup Oracle Java8
 RUN apt-get install -y software-properties-common debconf-utils && \
@@ -21,6 +21,18 @@ RUN apt-get install -y software-properties-common debconf-utils && \
     echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | debconf-set-selections && \
     apt-get install -y oracle-java8-installer
 ENV JAVA_HOME=/usr/lib/jvm/java-8-oracle
+
+#
+# Install Mongo, Mongo Java driver, and mongo-hadoop and start MongoDB
+#
+RUN echo "deb [ arch=amd64,arm64 ] http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.4 multiverse" > /etc/apt/sources.list.d/mongodb-org-3.4.list
+RUN apt-get update && \
+    apt-get install -y --allow-unauthenticated mongodb-org
+# apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 0C49F3730359A14518585931BC711F9BA15703C6 && \
+
+# Cleanup
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 
 WORKDIR /home/ubuntu
@@ -36,16 +48,17 @@ ENV PATH="/home/ubuntu/anaconda/bin:$PATH"
 # Install git, clone repo, install Python dependencies
 #
 RUN git clone https://github.com/rjurney/Agile_Data_Code_2
+
 WORKDIR /home/ubuntu/Agile_Data_Code_2
 ENV PROJECT_HOME=/Agile_Data_Code_2
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
-WORKDIR /home/ubuntu
 
 #
 # Install Hadoop: may need to update this link... see http://hadoop.apache.org/releases.html
 #
 #RUN curl -sL http://apache.osuosl.org/hadoop/common/hadoop-2.7.3/hadoop-2.7.3.tar.gz /tmp/hadoop-2.7.3.tar.gz
+WORKDIR /home/ubuntu
 RUN curl -sL http://apache.osuosl.org/hadoop/common/hadoop-2.7.6/hadoop-2.7.6.tar.gz -O && \
     mkdir -p /home/ubuntu/hadoop && \
     tar -xvf hadoop-2.7.6.tar.gz -C hadoop --strip-components=1
@@ -79,21 +92,6 @@ RUN echo "PYSPARK_PYTHON=python3" >> /home/ubuntu/spark/conf/spark-env.sh && \
 RUN cp /home/ubuntu/spark/conf/log4j.properties.template /home/ubuntu/spark/conf/log4j.properties && \
     sed -i 's/INFO/ERROR/g' /home/ubuntu/spark/conf/log4j.properties
 
-#
-# Install Mongo, Mongo Java driver, and mongo-hadoop and start MongoDB
-#
-USER root
-RUN echo "deb [ arch=amd64,arm64 ] http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.4 multiverse" > /etc/apt/sources.list.d/mongodb-org-3.4.list
-RUN apt-get update && \
-    apt-get install -y --allow-unauthenticated mongodb-org && \
-    mkdir -p /data/db
-# apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 0C49F3730359A14518585931BC711F9BA15703C6 && \
-
-# Cleanup
-RUN apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-USER ubuntu
 # Get the MongoDB Java Driver and put it in Agile_Data_Code_2
 #RUN curl -sL http://central.maven.org/maven2/org/mongodb/mongo-java-driver/3.4.0/mongo-java-driver-3.4.0.jar /tmp/mongo-java-driver-3.4.0.jar
 RUN curl -sL http://central.maven.org/maven2/org/mongodb/mongo-java-driver/3.6.3/mongo-java-driver-3.6.3.jar -O && \
@@ -104,8 +102,10 @@ RUN curl -sL https://github.com/mongodb/mongo-hadoop/archive/r1.5.2.tar.gz -O &&
     mkdir -p /home/ubuntu/mongo-hadoop && \
     tar -xvzf ./r1.5.2.tar.gz -C mongo-hadoop --strip-components=1 && \
     rm -f ./r1.5.2.tar.gz
+
 WORKDIR /home/ubuntu/mongo-hadoop
 RUN /home/ubuntu/mongo-hadoop/gradlew jar
+
 WORKDIR /home/ubuntu
 RUN cp /home/ubuntu/mongo-hadoop/spark/build/libs/mongo-hadoop-spark-*.jar /home/ubuntu/Agile_Data_Code_2/lib/ && \
     cp /home/ubuntu/mongo-hadoop/build/libs/mongo-hadoop-*.jar /home/ubuntu/Agile_Data_Code_2/lib/
@@ -113,6 +113,7 @@ RUN cp /home/ubuntu/mongo-hadoop/spark/build/libs/mongo-hadoop-spark-*.jar /home
 # Install pymongo_spark
 WORKDIR /home/ubuntu/mongo-hadoop/spark/src/main/python
 RUN python setup.py install
+
 WORKDIR /home/ubuntu
 RUN cp /home/ubuntu/mongo-hadoop/spark/src/main/python/pymongo_spark.py /home/ubuntu/Agile_Data_Code_2/lib/
 ENV PYTHONPATH=$PYTHONPATH:/home/ubuntu/Agile_Data_Code_2/lib
@@ -178,7 +179,6 @@ RUN pip install airflow && \
 # Install and setup Zeppelin
 #
 WORKDIR /home/ubuntu
-#RUN curl -sL http://www-us.apache.org/dist/zeppelin/zeppelin-0.6.2/zeppelin-0.6.2-bin-all.tgz /tmp/zeppelin-0.6.2-bin-all.tgz
 RUN curl -sL http://mirror.olnevhost.net/pub/apache/zeppelin/zeppelin-0.7.3/zeppelin-0.7.3-bin-all.tgz -O && \
     mkdir -p /home/ubuntu/zeppelin && \
     tar -xvzf ./zeppelin-0.7.3-bin-all.tgz -C zeppelin --strip-components=1 && \
@@ -191,48 +191,26 @@ RUN cp /home/ubuntu/zeppelin/conf/zeppelin-env.sh.template /home/ubuntu/zeppelin
     echo "export SPARK_CLASSPATH=" >> /home/ubuntu/zeppelin/conf/zeppelin-env.sh
 
 #
-# Download the data
+# Data on external volume
 #
-WORKDIR /home/ubuntu/Agile_Data_Code_2/data
-
-# On-time performance records
-RUN curl -sL http://s3.amazonaws.com/agile_data_science/On_Time_On_Time_Performance_2015.csv.gz -O && \
-   gzip -d ./On_Time_On_Time_Performance_2015.csv.gz
-
-# Openflights data
-RUN curl -sL https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat -O 
-RUN curl -sL https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat -O 
-RUN curl -sL https://raw.githubusercontent.com/jpatokal/openflights/master/data/routes.dat -O 
-RUN curl -sL https://raw.githubusercontent.com/jpatokal/openflights/master/data/countries.dat -O 
-
-# FAA data
-RUN curl -sL http://av-info.faa.gov/data/ACRef/tab/aircraft.txt -O 
-RUN curl -sL http://av-info.faa.gov/data/ACRef/tab/ata.txt -O 
-RUN curl -sL http://av-info.faa.gov/data/ACRef/tab/compt.txt -O 
-RUN curl -sL http://av-info.faa.gov/data/ACRef/tab/engine.txt -O 
-RUN curl -sL http://av-info.faa.gov/data/ACRef/tab/prop.txt -O 
-
-# WBAN Master List
-RUN curl -sL http://www.ncdc.noaa.gov/homr/file/wbanmasterlist.psv.zip -O && \
-    unzip -o ./wbanmasterlist.psv.zip
-
-RUN for i in $(seq -w 1 12); do curl -Lko /tmp/QCLCD2015${i}.zip http://www.ncdc.noaa.gov/orders/qclcd/QCLCD2015${i}.zip && \
-    unzip -o /tmp/QCLCD2015${i}.zip && \
-    gzip 2015${i}*.txt && \
-    rm -f /tmp/QCLCD2015${i}.zip; done
-
-
-# Back to /home/ubuntu
-WORKDIR /home/ubuntu
+VOLUME /data
+VOLUME /shared
 
 RUN jupyter-notebook --generate-config && \
   cp /home/ubuntu/Agile_Data_Code_2/jupyter_notebook_config.py /home/ubuntu/.jupyter
 
+RUN echo "#!/usr/bin/env bash" > /home/ubuntu/entrypoint.sh && \
+  echo "sudo /usr/bin/mongod --fork --logpath /var/log/mongodb.log" >> /home/ubuntu/entrypoint.sh && \
+  echo "airflow webserver -D &" >> /home/ubuntu/entrypoint.sh && \
+  echo "airflow scheduler -D &" >> /home/ubuntu/entrypoint.sh && \
+  echo "cd ~/Agile_Data_Code_2" >> /home/ubuntu/entrypoint.sh && \
+  echo "jupyter-notebook --ip=0.0.0.0" >> /home/ubuntu/entrypoint.sh && \
+  chmod +x /home/ubuntu/entrypoint.sh
+
 EXPOSE 5000
 EXPOSE 4567
 EXPOSE 8888
+EXPOSE 8080
 
-USER ubuntu
-COPY startup.sh startup.sh
-CMD chmod +x /home/ubuntu/startup.sh && /home/ubuntu/startup.sh
+ENTRYPOINT [ "/home/ubuntu/entrypoint.sh"]
 # Done!
