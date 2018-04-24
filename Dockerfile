@@ -127,7 +127,6 @@ RUN rm -rf /home/ubuntu/mongo-hadoop
 RUN curl -sL https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-6.2.4.tar.gz -O && \
     mkdir /home/ubuntu/elasticsearch && \
     tar -xvzf ./elasticsearch-6.2.4.tar.gz -C elasticsearch --strip-components=1 && \
-    /home/ubuntu/elasticsearch/bin/elasticsearch -d && \
     rm -f ./elasticsearch-6.2.4.tar.gz
 
 # Install Elasticsearch for Hadoop
@@ -160,10 +159,6 @@ RUN curl -sL http://www.gtlib.gatech.edu/pub/apache/kafka/0.11.0.2/kafka_2.11-0.
     tar -xvzf ./kafka_2.11-0.11.0.2.tgz -C kafka --strip-components=1 && \
     rm -f ./kafka_2.11-0.11.0.2.tgz
 
-# Run zookeeper (which kafka depends on), then Kafka
-RUN /home/ubuntu/kafka/bin/zookeeper-server-start.sh -daemon /home/ubuntu/kafka/config/zookeeper.properties && \
-    /home/ubuntu/kafka/bin/kafka-server-start.sh -daemon /home/ubuntu/kafka/config/server.properties
-
 #
 # Install and set up Airflow
 #
@@ -194,23 +189,45 @@ RUN cp /home/ubuntu/zeppelin/conf/zeppelin-env.sh.template /home/ubuntu/zeppelin
 # Data on external volume
 #
 VOLUME /data
+# experimental data shared with host
 VOLUME /shared
 
+# Configure things
 RUN jupyter-notebook --generate-config && \
   cp /home/ubuntu/Agile_Data_Code_2/jupyter_notebook_config.py /home/ubuntu/.jupyter
 
-RUN echo "#!/usr/bin/env bash" > /home/ubuntu/entrypoint.sh && \
-  echo "sudo /usr/bin/mongod --fork --logpath /var/log/mongodb.log" >> /home/ubuntu/entrypoint.sh && \
-  echo "airflow webserver -D &" >> /home/ubuntu/entrypoint.sh && \
-  echo "airflow scheduler -D &" >> /home/ubuntu/entrypoint.sh && \
-  echo "cd ~/Agile_Data_Code_2" >> /home/ubuntu/entrypoint.sh && \
-  echo "jupyter-notebook --ip=0.0.0.0" >> /home/ubuntu/entrypoint.sh && \
+
+RUN if [ ! -d /data/es ]; then sudo mkdir -p /data/es; sudo chown ubuntu:ubuntu /data/es; fi && \
+    if [ ! -d /data/db ]; then sudo mkdir -p /data/db; sudo chown ubuntu:ubuntu /data/db; fi && \
+# configure to use persistent volume
+    echo "path.data: /data/es" >> elasticsearch/config/elasticsearch.yml && \
+    echo "path.logs: /data/es" >> elasticsearch/config/elasticsearch.yml && \
+    # listen on any interface
+    echo 'network.host: "0.0.0.0"' >> elasticsearch/config/elasticsearch.yml
+
+RUN echo "#!/usr/bin/env bash" > entrypoint.sh && \
+  echo "if [ ! -d /data/es ]; then sudo mkdir -p /data/es; sudo chown ubuntu:ubuntu /data/es; fi" >> entrypoint.sh && \
+  echo "if [ ! -d /data/db ]; then sudo mkdir -p /data/db; sudo chown ubuntu:ubuntu /data/db; fi" >> entrypoint.sh && \
+  echo "sudo /usr/bin/mongod --fork --logpath /var/log/mongodb.log" >> entrypoint.sh && \
+  echo "airflow webserver -D &" >> entrypoint.sh && \
+  echo "airflow scheduler -D &" >> entrypoint.sh && \
+  echo "elasticsearch/bin/elasticsearch -d" >> entrypoint.sh && \
+# Run zookeeper (which kafka depends on), then Kafka
+  echo "/home/ubuntu/kafka/bin/zookeeper-server-start.sh -daemon /home/ubuntu/kafka/config/zookeeper.properties" >> entrypoint.sh && \
+  echo "/home/ubuntu/kafka/bin/kafka-server-start.sh -daemon /home/ubuntu/kafka/config/server.properties">> entrypoint.sh  && \
+# this is our long running process, watch out for dir switch
+  echo "cd ~/Agile_Data_Code_2" >> entrypoint.sh && \
+  echo "jupyter-notebook --ip=0.0.0.0" >> entrypoint.sh && \
   chmod +x /home/ubuntu/entrypoint.sh
 
+RUN echo "network.bind_host:"
 EXPOSE 5000
 EXPOSE 4567
+# jupyter
 EXPOSE 8888
 EXPOSE 8080
+# elasticsearch
+EXPOSE 9200
 
 ENTRYPOINT [ "/home/ubuntu/entrypoint.sh"]
 # Done!

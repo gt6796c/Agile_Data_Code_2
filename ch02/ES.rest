@@ -1,0 +1,25 @@
+# creates an index
+PUT http://localhost:9200/agile_data_science?pretty HTTP/1.1
+Content-Type: application/json
+
+{
+    "settings" : {
+        "index" : {            
+            "number_of_shards" : 1,             
+            "number_of_replicas" : 1         
+        }    
+    }
+}
+
+###
+
+PUT http://localhost:9200/customer/external/1?pretty HTTP/1.1
+Content-Type: application/json
+
+{
+  "name": "Russell Jurney"
+}
+
+###
+
+GET http://localhost:9200/customer/external/1?pretty HTTP/1.1
