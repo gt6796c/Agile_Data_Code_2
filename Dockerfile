@@ -8,7 +8,7 @@ USER root
 # Update apt-get and install things
 RUN apt-get autoclean
 RUN apt-get update && \
-    apt-get install -y sudo zip unzip curl bzip2 python-dev build-essential git libssl1.0.0 libssl-dev
+    apt-get install -y sudo zip unzip curl bzip2 python-dev build-essential git libssl1.0.0 libssl-dev vim-tiny
 
 RUN groupadd -g 999 ubuntu && \
     useradd -m -r -u 999 -g ubuntu ubuntu && \
@@ -220,7 +220,6 @@ RUN echo "#!/usr/bin/env bash" > entrypoint.sh && \
   echo "jupyter-notebook --ip=0.0.0.0" >> entrypoint.sh && \
   chmod +x /home/ubuntu/entrypoint.sh
 
-RUN echo "network.bind_host:"
 EXPOSE 5000
 EXPOSE 4567
 # jupyter
